@@ -1,4 +1,12 @@
-import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type MouseEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import { Document, Outline, Page, Thumbnail, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -16,6 +24,7 @@ import {
   X
 } from "lucide-react";
 import { toast } from "sonner";
+import { InView } from "@/components/InView";
 import { NotesPanel } from "@/components/NotesPanel";
 import { SpeedReader } from "@/components/SpeedReader";
 import { Button } from "@/components/ui/button";
@@ -28,7 +37,7 @@ import { useMobile } from "@/lib/media";
 import { markMatches, matchRanges } from "@/lib/search";
 import { type DocMeta, loadHighlights, saveHighlights, touchDoc } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { clampScale, fitScale } from "@/lib/zoom";
+import { canvasDpr, clampScale, fitScale } from "@/lib/zoom";
 
 // react-pdf: worker ayarı Document/Page kullanan modülde olmalı.
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -66,7 +75,12 @@ export function Reader({
   const mobile = useMobile();
   // Mobilde yan paneller çekmecedir. Aynı anda yalnız biri açık olur.
   const [sheet, setSheet] = useState<"nav" | "notes" | null>(null);
-  const [pageW, setPageW] = useState(0);
+  // İlk yüklenen sayfanın boyu. Yüklenmeyen sayfaların yer tutucusu bu boyu kullanır.
+  const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
+  const pageW = dims?.w ?? 0;
+  const est = dims ?? { w: 612, h: 792 };
+  const anchor = useRef<{ x: number; page: string | null; f: number } | null>(null);
+  const restored = useRef(false);
   // Kullanıcı elle yakınlaştırdıysa ekran dönünce sayfa yeniden sığdırılmaz.
   const zoomed = useRef(false);
   const loadedHighlights = useRef<Highlight[] | null>(null);
@@ -74,7 +88,6 @@ export function Reader({
   const searchRef = useRef<HTMLInputElement>(null);
   const q = query.trim();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const loadedPages = useRef(0);
   const ordered = useMemo(() => sortHighlights(highlights ?? []), [highlights]);
   const speedSources = useMemo(
     () => (speedOpen ? ordered.map((h) => ({ text: h.text, page: h.page })) : []),
@@ -136,16 +149,59 @@ export function Reader({
 
   const padding = mobile ? 16 : 32;
 
+  /** Ölçeği değiştirir ve ekranın ortasındaki noktayı yerinde tutar. Yoksa her + ya da − okunan yeri kaydırır. */
+  const rescale = (next: number | ((s: number) => number)) => {
+    const b = scrollRef.current;
+    if (b) {
+      // Konum sayfa numarası ve sayfa içi kesirle tutulur. Sayfa araları sabit px olduğu için toplam yükseklik oranı ölçekle orantılı değildir.
+      const top = b.getBoundingClientRect().top;
+      const mid = top + b.clientHeight / 2;
+      let hit: HTMLElement | null = null;
+      for (const el of b.querySelectorAll<HTMLElement>("[id^=page-]")) {
+        hit = el;
+        if (el.getBoundingClientRect().bottom >= mid) break;
+      }
+      anchor.current = {
+        x: (b.scrollLeft + b.clientWidth / 2) / (b.scrollWidth || 1),
+        page: hit?.id ?? null,
+        f: hit ? (mid - hit.getBoundingClientRect().top) / (hit.offsetHeight || 1) : 0
+      };
+    }
+    setScale(next);
+  };
+
+  useLayoutEffect(() => {
+    const b = scrollRef.current;
+    const a = anchor.current;
+    if (!b || !a) return;
+    anchor.current = null;
+    b.scrollLeft = a.x * b.scrollWidth - b.clientWidth / 2;
+    const el = a.page ? document.getElementById(a.page) : null;
+    if (el) {
+      const y = el.getBoundingClientRect().top - b.getBoundingClientRect().top + b.scrollTop;
+      b.scrollTop = y + a.f * el.offsetHeight - b.clientHeight / 2;
+    }
+  }, [scale]);
+
   const fitWidth = () => {
     zoomed.current = false;
     const box = scrollRef.current;
-    if (box && pageW) setScale(fitScale(box.clientWidth, pageW, padding));
+    if (box && pageW) rescale(fitScale(box.clientWidth, pageW, padding));
   };
 
   const zoom = (d: number) => {
     zoomed.current = true;
-    setScale((s) => clampScale(s + d));
+    rescale((s) => clampScale(s + d));
   };
+
+  // Sayfalar yer tutucuyla boyutlanır. İlk sayfanın boyu belli olunca son okunan sayfaya dön.
+  useEffect(() => {
+    if (!dims || restored.current) return;
+    restored.current = true;
+    if (meta.lastPage > 1) goTo(meta.lastPage);
+    // goTo her çizimde yeniden oluşur. Dönüş yalnız ilk boy belli olunca bir kez yapılır.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dims]);
 
   // Mobilde sayfa ekranın genişliğine sığar. Ekran dönünce de sığar, elle yakınlaştırılmadıysa.
   useEffect(() => {
@@ -153,7 +209,7 @@ export function Reader({
     if (!mobile || !box || !pageW) return;
     zoomed.current = false;
     const ro = new ResizeObserver(() => {
-      if (!zoomed.current) setScale(fitScale(box.clientWidth, pageW, 16));
+      if (!zoomed.current) rescale(fitScale(box.clientWidth, pageW, 16));
     });
     ro.observe(box);
     return () => ro.disconnect();
@@ -335,12 +391,13 @@ export function Reader({
     window.getSelection()?.removeAllRanges();
   };
 
-  const onPageLoaded = (p: { originalWidth: number }) => {
-    setPageW((w) => w || p.originalWidth);
-    loadedPages.current += 1;
-    // Bütün sayfaların boyu belli olunca son okunan sayfaya dön.
-    if (loadedPages.current === numPages && meta.lastPage > 1) goTo(meta.lastPage);
-  };
+  const onPageLoaded = (p: { originalWidth: number; originalHeight: number }) =>
+    setDims((d) => d ?? { w: p.originalWidth, h: p.originalHeight });
+
+  // Mobilde canvas'ın piksel sayısı sınırlanır. Masaüstü olduğu gibi kalır.
+  const pageDpr = mobile
+    ? canvasDpr(window.devicePixelRatio || 1, est.w * scale, est.h * scale)
+    : undefined;
 
   const compactSearch = mobile && searchOpen;
   const bar = pending ?? editing;
@@ -367,10 +424,15 @@ export function Reader({
         <ScrollArea className="h-full">
           <div className="flex flex-col items-center gap-3 py-2">
             {Array.from({ length: numPages }, (_, i) => (
-              <div key={i} className={i + 1 === page ? "ring-primary rounded ring-2" : undefined}>
+              <InView
+                key={i}
+                minWidth={120}
+                minHeight={(120 * est.h) / est.w + 20}
+                className={i + 1 === page ? "ring-primary rounded ring-2" : undefined}
+              >
                 <Thumbnail pageNumber={i + 1} width={120} />
                 <p className="text-muted-foreground text-center text-xs">{i + 1}</p>
-              </div>
+              </InView>
             ))}
           </div>
         </ScrollArea>
@@ -402,14 +464,25 @@ export function Reader({
   );
 
   const pdfView = (
-    <div ref={scrollRef} onPointerUp={onPointerUp} className="bg-muted h-full overflow-auto">
-      {/* ponytail: bütün sayfalar render edilir. 300+ sayfada yavaşlarsa sanallaştır. */}
+    <div
+      ref={scrollRef}
+      data-scroll-root
+      onPointerUp={onPointerUp}
+      className="bg-muted h-full overflow-auto"
+    >
       <div className="mobile:p-2 flex w-max min-w-full flex-col items-center gap-4 p-4">
         {Array.from({ length: numPages }, (_, i) => (
-          <div key={i} id={`page-${i + 1}`} className="shadow-md">
+          <InView
+            key={i}
+            id={`page-${i + 1}`}
+            className="bg-white shadow-md"
+            minWidth={est.w * scale}
+            minHeight={est.h * scale}
+          >
             <Page
               pageNumber={i + 1}
               scale={scale}
+              devicePixelRatio={pageDpr}
               onLoadSuccess={onPageLoaded}
               customTextRenderer={renderText}
             >
@@ -433,7 +506,7 @@ export function Reader({
                 )
               )}
             </Page>
-          </div>
+          </InView>
         ))}
       </div>
     </div>
