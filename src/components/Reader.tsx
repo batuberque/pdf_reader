@@ -69,6 +69,7 @@ export function Reader({
   const [pageW, setPageW] = useState(0);
   // Kullanıcı elle yakınlaştırdıysa ekran dönünce sayfa yeniden sığdırılmaz.
   const zoomed = useRef(false);
+  const loadedHighlights = useRef<Highlight[] | null>(null);
   const pageTexts = useRef(new Map<number, string[]>());
   const searchRef = useRef<HTMLInputElement>(null);
   const q = query.trim();
@@ -159,11 +160,22 @@ export function Reader({
   }, [mobile, pageW]);
 
   useEffect(() => {
-    loadHighlights(meta.id).then(setHighlights);
+    loadHighlights(meta.id).then((h) => {
+      loadedHighlights.current = h;
+      setHighlights(h);
+    });
   }, [meta.id]);
 
   useEffect(() => {
-    if (highlights) saveHighlights(meta.id, highlights);
+    // Yüklenen liste olduğu gibi geri yazılmaz. Gereksiz yazma olur, kapalı depoda da yanlış alarm verir.
+    if (!highlights || highlights === loadedHighlights.current) return;
+    saveHighlights(meta.id, highlights).catch(() =>
+      // Aynı `id` ile her yazmada yeni bildirim açılmaz.
+      toast.error("İşaretler kaydedilemedi.", {
+        id: "save-failed",
+        description: "Depo kapalı ya da dolu. Sekmeyi kapatınca işaretler kaybolur."
+      })
+    );
   }, [meta.id, highlights]);
 
   useEffect(() => {

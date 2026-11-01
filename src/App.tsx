@@ -109,19 +109,33 @@ export default function App() {
     let meta: DocMeta;
     try {
       meta = await saveDoc(file);
-    } catch {
-      // Depo dolu veya tarayıcı yazmayı engelliyor (gizli pencere gibi).
-      return toast.error("PDF tarayıcı deposuna kaydedilemedi.", {
-        description: "Yer aç: kitaplıktan bir PDF sil. Gizli pencerede depo çalışmayabilir."
+    } catch (e) {
+      // Depo dolu veya tarayıcı yazmayı engelliyor (gizli pencere gibi). Hata adı sebebi gösterir.
+      // PDF yine de açılır. Kitaplığa girmez, işaretler kaydedilmez.
+      const now = Date.now();
+      toast.warning("PDF tarayıcı deposuna kaydedilemedi. PDF yine de açıldı.", {
+        description: `Kitaplığa eklenmedi ve işaretlerin kaydedilmeyecek. Depo doluysa kitaplıktan bir PDF sil. Gizli sekmede depo kapalı olabilir. Hata kodu: ${e instanceof Error ? e.name : "bilinmiyor"}.`,
+        duration: 10_000
+      });
+      return setOpen({
+        meta: {
+          id: crypto.randomUUID(),
+          name: file.name,
+          addedAt: now,
+          openedAt: now,
+          lastPage: 1
+        },
+        file
       });
     }
     // Az önce silinen PDF yeniden açıldıysa zamanlanmış silme iptal olur.
     restore(meta.id);
-    setOpen({ meta, file });
+    // Depodan açılır. Kayıt okunamıyorsa elindeki dosya açılır.
+    return openSaved(meta, file);
   };
 
-  const openSaved = async (meta: DocMeta) => {
-    const file = await loadPdf(meta.id);
+  const openSaved = async (meta: DocMeta, fallback?: Blob) => {
+    const file = (await loadPdf(meta.id).catch(() => undefined)) ?? fallback;
     if (!file) return toast.error("PDF tarayıcı deposunda bulunamadı. Dosyayı tekrar aç.");
     setOpen({ meta, file });
   };

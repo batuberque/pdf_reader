@@ -20,7 +20,9 @@ export async function hashFile(data: ArrayBuffer): Promise<string> {
 }
 
 export async function saveDoc(file: File): Promise<DocMeta> {
-  const id = await hashFile(await file.arrayBuffer());
+  // iOS Safari, File ya da Blob'u IndexedDB'ye yazarken hata verebilir. Baytlar ArrayBuffer olarak yazılır.
+  const data = await file.arrayBuffer();
+  const id = await hashFile(data);
   const now = Date.now();
   const meta = (await get<DocMeta>(`doc:${id}`)) ?? {
     id,
@@ -31,7 +33,7 @@ export async function saveDoc(file: File): Promise<DocMeta> {
   };
   meta.openedAt = now;
   // Önce büyük PDF yazılır. Depo dolarsa kitaplıkta PDF'siz kayıt kalmaz.
-  await set(`pdf:${id}`, file);
+  await set(`pdf:${id}`, data);
   await set(`doc:${id}`, meta);
   return meta;
 }
@@ -47,11 +49,20 @@ export async function listDocs(): Promise<LibraryDoc[]> {
     .sort((a, b) => b.openedAt - a.openedAt);
 }
 
-export const loadPdf = (id: string) => get<Blob>(`pdf:${id}`);
+/** Eski kayıtlar Blob, yenileri ArrayBuffer. İkisi de Blob olarak döner. */
+export async function loadPdf(id: string): Promise<Blob | undefined> {
+  const stored = await get<Blob | ArrayBuffer>(`pdf:${id}`);
+  return !stored || stored instanceof Blob
+    ? stored
+    : new Blob([stored], { type: "application/pdf" });
+}
 
 /** Okuma ve yazma tek işlemdedir. Aynı anda gelen iki güncelleme birbirini silmez. */
 export const touchDoc = (id: string, patch: Partial<DocMeta>) =>
-  update<DocMeta | undefined>(`doc:${id}`, (meta) => meta && { ...meta, ...patch });
+  update<DocMeta | undefined>(`doc:${id}`, (meta) => meta && { ...meta, ...patch }).catch(() => {
+    // Kaldığın sayfa ve sayfa sayısı yalnız kolaylıktır. Depo kapalıysa okumayı bozma.
+    // Asıl veri (işaretler) kaydedilemezse Reader kullanıcıya bildirir.
+  });
 
 export const deleteDoc = (id: string) => delMany([`doc:${id}`, `pdf:${id}`, `hl:${id}`]);
 
