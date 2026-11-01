@@ -9,7 +9,8 @@ type Props = {
   docName: string;
   highlights: Highlight[];
   activeId: string | null;
-  onSelect: (h: Highlight) => void;
+  /** `jump`: kullanıcı listeden işarete atlamak istedi. Not alanına odaklanmak atlama değildir. */
+  onSelect: (h: Highlight, jump?: boolean) => void;
   onSpeedRead: () => void;
   onChange: (id: string, patch: Partial<Highlight>) => void;
   onDelete: (id: string) => void;
@@ -78,7 +79,7 @@ export function NotesPanel({
               <button
                 className="w-full cursor-pointer border-l-4 pl-2 text-left text-sm"
                 style={{ borderColor: h.color }}
-                onClick={() => onSelect(h)}
+                onClick={() => onSelect(h, true)}
               >
                 <span className="line-clamp-4">{h.text}</span>
               </button>

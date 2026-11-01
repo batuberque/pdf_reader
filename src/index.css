@@ -2,6 +2,13 @@
 
 @plugin "tailwindcss-animate";
 
+/* Okuyucu ekranının mobil düzeni. src/lib/media.ts içindeki sorguyla aynı olmalı. */
+@custom-variant mobile {
+  @media (max-width: 767px), (max-height: 499px) and (max-width: 1023px) {
+    @slot;
+  }
+}
+
 :root {
   --base-50: oklch(0.985 0.0013 286.84);
   --base-100: oklch(0.967 0.0027 286.38);

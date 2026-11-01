@@ -6,10 +6,12 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronUp,
+  List,
   Minus,
   MoveHorizontal,
   Plus,
   Search,
+  StickyNote,
   Trash2,
   X
 } from "lucide-react";
@@ -19,10 +21,14 @@ import { SpeedReader } from "@/components/SpeedReader";
 import { Button } from "@/components/ui/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { COLORS, type Highlight, type Rect, selectionRects, sortHighlights } from "@/lib/highlight";
+import { useMobile } from "@/lib/media";
 import { markMatches, matchRanges } from "@/lib/search";
 import { type DocMeta, loadHighlights, saveHighlights, touchDoc } from "@/lib/store";
+import { cn } from "@/lib/utils";
+import { clampScale, fitScale } from "@/lib/zoom";
 
 // react-pdf: worker ayarı Document/Page kullanan modülde olmalı.
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -33,8 +39,6 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 type Pending = { page: number; rects: Rect[]; text: string; x: number; y: number };
 type Editing = { id: string; x: number; y: number };
 type Pdf = pdfjs.PDFDocumentProxy;
-
-const clampScale = (s: number) => Math.min(3, Math.max(0.5, Math.round(s * 10) / 10));
 
 export function Reader({
   meta,
@@ -59,7 +63,12 @@ export function Reader({
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<{ page: number; count: number }[]>([]);
   const [hitIdx, setHitIdx] = useState(0);
-  const pageWidth = useRef(0);
+  const mobile = useMobile();
+  // Mobilde yan paneller çekmecedir. Aynı anda yalnız biri açık olur.
+  const [sheet, setSheet] = useState<"nav" | "notes" | null>(null);
+  const [pageW, setPageW] = useState(0);
+  // Kullanıcı elle yakınlaştırdıysa ekran dönünce sayfa yeniden sığdırılmaz.
+  const zoomed = useRef(false);
   const pageTexts = useRef(new Map<number, string[]>());
   const searchRef = useRef<HTMLInputElement>(null);
   const q = query.trim();
@@ -124,10 +133,30 @@ export function Reader({
     [q]
   );
 
+  const padding = mobile ? 16 : 32;
+
   const fitWidth = () => {
+    zoomed.current = false;
     const box = scrollRef.current;
-    if (box && pageWidth.current) setScale(clampScale((box.clientWidth - 32) / pageWidth.current));
+    if (box && pageW) setScale(fitScale(box.clientWidth, pageW, padding));
   };
+
+  const zoom = (d: number) => {
+    zoomed.current = true;
+    setScale((s) => clampScale(s + d));
+  };
+
+  // Mobilde sayfa ekranın genişliğine sığar. Ekran dönünce de sığar, elle yakınlaştırılmadıysa.
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!mobile || !box || !pageW) return;
+    zoomed.current = false;
+    const ro = new ResizeObserver(() => {
+      if (!zoomed.current) setScale(fitScale(box.clientWidth, pageW, 16));
+    });
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [mobile, pageW]);
 
   useEffect(() => {
     loadHighlights(meta.id).then(setHighlights);
@@ -153,7 +182,8 @@ export function Reader({
     );
     root.querySelectorAll("[id^=page-]").forEach((el) => io.observe(el));
     return () => io.disconnect();
-  }, [numPages]);
+    // shortcut: mobil ile masaüstü arası geçişte kaydırma kutusu yeniden oluşur ve konum başa döner. Telefon yan çevrilince geçiş olmaz. Yalnız masaüstünde pencereyi daraltmak ya da tablette bölünmüş ekran geçiş yapar. Gerekirse goTo(page) çağır.
+  }, [numPages, mobile]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -167,8 +197,8 @@ export function Reader({
       if (speedOpen || t.closest("textarea, input") || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "ArrowRight" || e.key === "j") goTo(page + 1);
       else if (e.key === "ArrowLeft" || e.key === "k") goTo(page - 1);
-      else if (e.key === "+" || e.key === "=") setScale((s) => clampScale(s + 0.1));
-      else if (e.key === "-") setScale((s) => clampScale(s - 0.1));
+      else if (e.key === "+" || e.key === "=") zoom(0.1);
+      else if (e.key === "-") zoom(-0.1);
       else if (e.key === "w") fitWidth();
       else if (e.key === "Escape") {
         setPending(null);
@@ -215,12 +245,10 @@ export function Reader({
     });
   };
 
-  const onMouseUp = (e: MouseEvent) => {
+  /** Seçili metinden bekleyen işareti çıkarır. Seçim boşsa hiçbir şey yapmaz. */
+  const captureSelection = (clientX: number, clientY: number) => {
     const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || !sel.rangeCount) {
-      setPending(null);
-      return openEditor(e);
-    }
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
     setEditing(null);
     const range = sel.getRangeAt(0);
     const text = sel.toString().trim();
@@ -237,10 +265,46 @@ export function Reader({
       page: rects[0].page,
       rects,
       text,
-      x: Math.min(Math.max(e.clientX, 80), window.innerWidth - 80),
-      y: Math.min(e.clientY + 16, window.innerHeight - 48)
+      x: Math.min(Math.max(clientX, 80), window.innerWidth - 80),
+      y: Math.min(clientY + 16, window.innerHeight - 48)
     });
   };
+
+  // Pointer olayı mouseup'ın aksine iOS Safari'de dokunuşta da gelir. Fare ve parmak aynı yoldan geçer.
+  const onPointerUp = (e: MouseEvent) => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) {
+      setPending(null);
+      return openEditor(e);
+    }
+    captureSelection(e.clientX, e.clientY);
+  };
+
+  // Dokunmatik seçimde parmak kalkınca olay gelmez. Tutamaçları sürüklemek yalnız selectionchange üretir.
+  // Bekleyen işaret burada silinmez. Renk düğmesine basmak seçimi bozabilir. Sayfaya dokunmak onPointerUp'ta siler.
+  useEffect(() => {
+    if (!mobile) return;
+    let t: ReturnType<typeof setTimeout>;
+    const onChange = () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        const sel = window.getSelection();
+        if (
+          sel?.rangeCount &&
+          scrollRef.current?.contains(sel.getRangeAt(0).commonAncestorContainer)
+        ) {
+          captureSelection(0, 0);
+        }
+      }, 250);
+    };
+    document.addEventListener("selectionchange", onChange);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("selectionchange", onChange);
+    };
+    // captureSelection yalnız state setter'larını ve DOM'u kullanır. Eski kapanış zarar vermez.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobile]);
 
   const addHighlight = (color: string) => {
     if (!pending) return;
@@ -260,11 +324,108 @@ export function Reader({
   };
 
   const onPageLoaded = (p: { originalWidth: number }) => {
-    pageWidth.current ||= p.originalWidth;
+    setPageW((w) => w || p.originalWidth);
     loadedPages.current += 1;
     // Bütün sayfaların boyu belli olunca son okunan sayfaya dön.
     if (loadedPages.current === numPages && meta.lastPage > 1) goTo(meta.lastPage);
   };
+
+  const compactSearch = mobile && searchOpen;
+  const bar = pending ?? editing;
+
+  // Mobilde sidebar ve notes çekmecede, masaüstünde panelde durur. Aynı JSX, tek kopya.
+  const sidebar = (
+    <Tabs defaultValue="outline" className="flex h-full flex-col p-2">
+      <TabsList className="w-full">
+        <TabsTrigger value="outline">İçindekiler</TabsTrigger>
+        <TabsTrigger value="pages">Sayfalar</TabsTrigger>
+      </TabsList>
+      <TabsContent value="outline" className="min-h-0">
+        <ScrollArea className="h-full">
+          {!hasOutline && (
+            <p className="text-muted-foreground p-2 text-sm">Bu PDF'te içindekiler yok.</p>
+          )}
+          <Outline
+            className="outline-list text-sm"
+            onLoadSuccess={(o) => setHasOutline(!!o?.length)}
+          />
+        </ScrollArea>
+      </TabsContent>
+      <TabsContent value="pages" className="min-h-0">
+        <ScrollArea className="h-full">
+          <div className="flex flex-col items-center gap-3 py-2">
+            {Array.from({ length: numPages }, (_, i) => (
+              <div key={i} className={i + 1 === page ? "ring-primary rounded ring-2" : undefined}>
+                <Thumbnail pageNumber={i + 1} width={120} />
+                <p className="text-muted-foreground text-center text-xs">{i + 1}</p>
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+      </TabsContent>
+    </Tabs>
+  );
+
+  const notes = (
+    <NotesPanel
+      docName={meta.name}
+      highlights={highlights ?? []}
+      activeId={activeId}
+      onSpeedRead={() => {
+        // Açık çekmece Hızlı okuma ekranının odağını çalar. Önce kapat.
+        setSheet(null);
+        setSpeedOpen(true);
+      }}
+      onSelect={(h, jump) => {
+        setActiveId(h.id);
+        goTo(h.page);
+        // Çekmece sayfayı örter. Listeden atlayınca kapat. Not alanına odaklanınca açık kalmalı.
+        if (jump) setSheet(null);
+      }}
+      onChange={(id, patch) =>
+        setHighlights((hs) => hs?.map((h) => (h.id === id ? { ...h, ...patch } : h)) ?? hs)
+      }
+      onDelete={removeHighlight}
+    />
+  );
+
+  const pdfView = (
+    <div ref={scrollRef} onPointerUp={onPointerUp} className="bg-muted h-full overflow-auto">
+      {/* ponytail: bütün sayfalar render edilir. 300+ sayfada yavaşlarsa sanallaştır. */}
+      <div className="mobile:p-2 flex w-max min-w-full flex-col items-center gap-4 p-4">
+        {Array.from({ length: numPages }, (_, i) => (
+          <div key={i} id={`page-${i + 1}`} className="shadow-md">
+            <Page
+              pageNumber={i + 1}
+              scale={scale}
+              onLoadSuccess={onPageLoaded}
+              customTextRenderer={renderText}
+            >
+              {highlights?.flatMap((h) =>
+                h.rects.map((r, j) =>
+                  r.page !== i + 1 ? null : (
+                    <div
+                      key={`${h.id}-${j}`}
+                      className="hl-rect"
+                      style={{
+                        left: `${r.x * 100}%`,
+                        top: `${r.y * 100}%`,
+                        width: `${r.w * 100}%`,
+                        height: `${r.h * 100}%`,
+                        background: h.color,
+                        outline: h.id === activeId ? `2px solid ${h.color}` : undefined,
+                        outlineOffset: 2
+                      }}
+                    />
+                  )
+                )
+              )}
+            </Page>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <Document
@@ -275,19 +436,34 @@ export function Reader({
         setNumPages(pdf.numPages);
         touchDoc(meta.id, { numPages: pdf.numPages });
       }}
-      onItemClick={({ pageNumber }) => goTo(pageNumber)}
+      onItemClick={({ pageNumber }) => {
+        setSheet(null);
+        goTo(pageNumber);
+      }}
       loading={<p className="text-muted-foreground p-8">PDF yükleniyor…</p>}
       error={<p className="text-destructive p-8">PDF açılamadı.</p>}
       className="flex h-dvh flex-col"
     >
       <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2">
-        <Button variant="ghost" size="icon-sm" onClick={onClose} title="Kitaplığa dön">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="mobile:size-11"
+          onClick={onClose}
+          title="Kitaplığa dön"
+          aria-label="Kitaplığa dön"
+        >
           <ArrowLeft />
         </Button>
-        <span className="truncate text-sm font-medium">{meta.name}</span>
-        <div className="ml-auto flex items-center gap-1 text-sm">
+        {!compactSearch && <span className="truncate text-sm font-medium">{meta.name}</span>}
+        <div
+          className={cn(
+            "ml-auto flex items-center gap-1 text-sm",
+            compactSearch && "min-w-0 flex-1"
+          )}
+        >
           {searchOpen ? (
-            <div className="flex items-center gap-1">
+            <div className="mobile:flex-1 flex min-w-0 items-center gap-1">
               <input
                 ref={searchRef}
                 autoFocus
@@ -298,32 +474,40 @@ export function Reader({
                   else if (e.key === "Escape") closeSearch();
                 }}
                 placeholder="PDF'te ara…"
-                className="bg-background focus-visible:ring-ring/50 h-7 w-44 rounded-md border px-2 text-sm outline-none focus-visible:ring-[3px]"
+                // 16 px altı yazı iOS Safari'de odaklanınca sayfayı yakınlaştırır.
+                className="bg-background focus-visible:ring-ring/50 mobile:h-9 mobile:min-w-0 mobile:flex-1 mobile:text-base h-7 w-44 rounded-md border px-2 text-sm outline-none focus-visible:ring-[3px]"
               />
-              <span className="text-muted-foreground w-14 text-center text-xs tabular-nums">
-                {q ? (hits.length ? `${hitIdx + 1}/${hits.length} sf.` : "yok") : ""}
+              <span className="text-muted-foreground mobile:w-auto w-14 text-center text-xs whitespace-nowrap tabular-nums">
+                {q ? (hits.length ? `${hitIdx + 1}/${hits.length}` : "yok") : ""}
+                {!!hits.length && <span className="mobile:hidden"> sf.</span>}
               </span>
               <Button
                 variant="ghost"
                 size="icon-sm"
+                className="mobile:size-11"
                 onClick={() => stepHit(-1)}
                 title="Önceki (Shift+Enter)"
+                aria-label="Önceki eşleşme"
               >
                 <ChevronUp />
               </Button>
               <Button
                 variant="ghost"
                 size="icon-sm"
+                className="mobile:size-11"
                 onClick={() => stepHit(1)}
                 title="Sonraki (Enter)"
+                aria-label="Sonraki eşleşme"
               >
                 <ChevronDown />
               </Button>
               <Button
                 variant="ghost"
                 size="icon-sm"
+                className="mobile:size-11"
                 onClick={closeSearch}
                 title="Aramayı kapat (Esc)"
+                aria-label="Aramayı kapat"
               >
                 <X />
               </Button>
@@ -332,131 +516,115 @@ export function Reader({
             <Button
               variant="ghost"
               size="icon-sm"
+              className="mobile:size-11"
               onClick={() => setSearchOpen(true)}
               title="Ara (Ctrl/⌘+F)"
+              aria-label="Ara"
             >
               <Search />
             </Button>
           )}
-          <span className="text-muted-foreground tabular-nums">
-            {page} / {numPages}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setScale((s) => clampScale(s - 0.1))}
-            title="Uzaklaştır (-)"
-          >
-            <Minus />
-          </Button>
-          <span className="w-12 text-center tabular-nums">{Math.round(scale * 100)}%</span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setScale((s) => clampScale(s + 0.1))}
-            title="Yakınlaştır (+)"
-          >
-            <Plus />
-          </Button>
-          <Button variant="ghost" size="icon-sm" onClick={fitWidth} title="Genişliğe sığdır (w)">
-            <MoveHorizontal />
-          </Button>
+          {!compactSearch && (
+            <span className="text-muted-foreground tabular-nums">
+              {page} / {numPages}
+            </span>
+          )}
+          {/* Mobilde yakınlaştırma düğmeleri alt çubukta. */}
+          <div className="mobile:hidden flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => zoom(-0.1)}
+              title="Uzaklaştır (-)"
+            >
+              <Minus />
+            </Button>
+            <span className="w-12 text-center tabular-nums">{Math.round(scale * 100)}%</span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => zoom(0.1)}
+              title="Yakınlaştır (+)"
+            >
+              <Plus />
+            </Button>
+            <Button variant="ghost" size="icon-sm" onClick={fitWidth} title="Genişliğe sığdır (w)">
+              <MoveHorizontal />
+            </Button>
+          </div>
         </div>
       </header>
 
-      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-        <ResizablePanel defaultSize="18%" minSize="10%" collapsible>
-          <Tabs defaultValue="outline" className="flex h-full flex-col p-2">
-            <TabsList className="w-full">
-              <TabsTrigger value="outline">İçindekiler</TabsTrigger>
-              <TabsTrigger value="pages">Sayfalar</TabsTrigger>
-            </TabsList>
-            <TabsContent value="outline" className="min-h-0">
-              <ScrollArea className="h-full">
-                {!hasOutline && (
-                  <p className="text-muted-foreground p-2 text-sm">Bu PDF'te içindekiler yok.</p>
-                )}
-                <Outline
-                  className="outline-list text-sm"
-                  onLoadSuccess={(o) => setHasOutline(!!o?.length)}
-                />
-              </ScrollArea>
-            </TabsContent>
-            <TabsContent value="pages" className="min-h-0">
-              <ScrollArea className="h-full">
-                <div className="flex flex-col items-center gap-3 py-2">
-                  {Array.from({ length: numPages }, (_, i) => (
-                    <div
-                      key={i}
-                      className={i + 1 === page ? "ring-primary rounded ring-2" : undefined}
-                    >
-                      <Thumbnail pageNumber={i + 1} width={120} />
-                      <p className="text-muted-foreground text-center text-xs">{i + 1}</p>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            </TabsContent>
-          </Tabs>
-        </ResizablePanel>
-        <ResizableHandle withHandle />
-
-        <ResizablePanel minSize="30%">
-          <div ref={scrollRef} onMouseUp={onMouseUp} className="bg-muted h-full overflow-auto">
-            {/* ponytail: bütün sayfalar render edilir. 300+ sayfada yavaşlarsa sanallaştır. */}
-            <div className="flex w-max min-w-full flex-col items-center gap-4 p-4">
-              {Array.from({ length: numPages }, (_, i) => (
-                <div key={i} id={`page-${i + 1}`} className="shadow-md">
-                  <Page
-                    pageNumber={i + 1}
-                    scale={scale}
-                    onLoadSuccess={onPageLoaded}
-                    customTextRenderer={renderText}
-                  >
-                    {highlights?.flatMap((h) =>
-                      h.rects.map((r, j) =>
-                        r.page !== i + 1 ? null : (
-                          <div
-                            key={`${h.id}-${j}`}
-                            className="hl-rect"
-                            style={{
-                              left: `${r.x * 100}%`,
-                              top: `${r.y * 100}%`,
-                              width: `${r.w * 100}%`,
-                              height: `${r.h * 100}%`,
-                              background: h.color,
-                              outline: h.id === activeId ? `2px solid ${h.color}` : undefined,
-                              outlineOffset: 2
-                            }}
-                          />
-                        )
-                      )
-                    )}
-                  </Page>
-                </div>
-              ))}
+      {mobile ? (
+        <>
+          <div className="min-h-0 flex-1">{pdfView}</div>
+          <nav className="flex h-14 shrink-0 items-center justify-between border-t px-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-11"
+              onClick={() => setSheet("nav")}
+              aria-label="İçindekiler ve sayfalar"
+            >
+              <List />
+            </Button>
+            <div className="flex items-center">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-11"
+                onClick={() => zoom(-0.1)}
+                aria-label="Uzaklaştır"
+              >
+                <Minus />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-11"
+                onClick={fitWidth}
+                aria-label="Genişliğe sığdır"
+              >
+                <MoveHorizontal />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-11"
+                onClick={() => zoom(0.1)}
+                aria-label="Yakınlaştır"
+              >
+                <Plus />
+              </Button>
             </div>
-          </div>
-        </ResizablePanel>
-        <ResizableHandle withHandle />
-
-        <ResizablePanel defaultSize="25%" minSize="15%" collapsible>
-          <NotesPanel
-            docName={meta.name}
-            highlights={highlights ?? []}
-            activeId={activeId}
-            onSpeedRead={() => setSpeedOpen(true)}
-            onSelect={(h) => {
-              setActiveId(h.id);
-              goTo(h.page);
-            }}
-            onChange={(id, patch) =>
-              setHighlights((hs) => hs?.map((h) => (h.id === id ? { ...h, ...patch } : h)) ?? hs)
-            }
-            onDelete={removeHighlight}
-          />
-        </ResizablePanel>
-      </ResizablePanelGroup>
+            <Button variant="ghost" className="h-11 px-3" onClick={() => setSheet("notes")}>
+              <StickyNote /> Notlar ({highlights?.length ?? 0})
+            </Button>
+          </nav>
+          <Sheet open={sheet === "nav"} onOpenChange={(o) => !o && setSheet(null)}>
+            <SheetContent side="left" title="İçindekiler ve sayfalar">
+              {sidebar}
+            </SheetContent>
+          </Sheet>
+          <Sheet open={sheet === "notes"} onOpenChange={(o) => !o && setSheet(null)}>
+            <SheetContent side="bottom" title="Notlar">
+              {notes}
+            </SheetContent>
+          </Sheet>
+        </>
+      ) : (
+        <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+          <ResizablePanel defaultSize="18%" minSize="10%" collapsible>
+            {sidebar}
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel minSize="30%">{pdfView}</ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize="25%" minSize="15%" collapsible>
+            {notes}
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      )}
 
       {speedOpen && (
         <SpeedReader
@@ -472,10 +640,14 @@ export function Reader({
         />
       )}
 
-      {(pending || editing) && (
+      {bar && (
         <div
-          className="bg-popover fixed z-50 flex -translate-x-1/2 items-center gap-1 rounded-lg border p-1 shadow-lg"
-          style={{ left: (pending ?? editing)!.x, top: (pending ?? editing)!.y }}
+          // Mobilde çubuk alt çubuğun üstünde sabittir. Parmağın ve yerel kopyala menüsünün altında kalmaz.
+          className={cn(
+            "bg-popover fixed z-50 flex -translate-x-1/2 items-center gap-1 rounded-lg border p-1 shadow-lg select-none",
+            mobile && "bottom-16 left-1/2"
+          )}
+          style={mobile ? undefined : { left: bar.x, top: bar.y }}
           onMouseDown={(e) => e.preventDefault()}
         >
           {COLORS.map((c) => (
@@ -488,17 +660,20 @@ export function Reader({
                 );
                 setEditing(null);
               }}
-              className="size-6 cursor-pointer rounded-full border"
+              className="mobile:size-11 size-6 cursor-pointer rounded-full border"
               style={{ background: c }}
               title={pending ? "İşaretle" : "Rengi değiştir"}
+              aria-label={pending ? "İşaretle" : "Rengi değiştir"}
             />
           ))}
           {editing && (
             <Button
               variant="ghost"
               size="icon-xs"
+              className="mobile:size-11"
               onClick={() => removeHighlight(editing.id)}
               title="İşareti sil"
+              aria-label="İşareti sil"
             >
               <Trash2 />
             </Button>
