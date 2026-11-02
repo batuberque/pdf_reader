@@ -67,6 +67,8 @@ export function Reader({
   const [pending, setPending] = useState<Pending | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [hasOutline, setHasOutline] = useState(true);
+  // Çekmece kapanınca seçili sekme unutulmasın. İçindekiler yoksa kullanıcı Sayfalar'a geçer.
+  const [navTab, setNavTab] = useState("outline");
   const [speedOpen, setSpeedOpen] = useState(false);
   // "Bu sayfayı hızlı oku" açıksa okunan sayfanın metni. Yoksa hızlı okuma işaretleri okur.
   const [pageSources, setPageSources] = useState<Source[] | null>(null);
@@ -444,19 +446,30 @@ export function Reader({
 
   // Mobilde sidebar ve notes çekmecede, masaüstünde panelde durur. Aynı JSX, tek kopya.
   const sidebar = (
-    <Tabs defaultValue="outline" className="flex h-full flex-col p-2">
+    <Tabs value={navTab} onValueChange={setNavTab} className="flex h-full flex-col p-2">
       <TabsList className="w-full">
         <TabsTrigger value="outline">İçindekiler</TabsTrigger>
         <TabsTrigger value="pages">Sayfalar</TabsTrigger>
       </TabsList>
       <TabsContent value="outline" className="min-h-0">
         <ScrollArea className="h-full">
+          {/* Sekme yalnız PDF'in yer imlerini gösterir. Basılı bir içindekiler sayfası buraya gelmez. */}
           {!hasOutline && (
-            <p className="text-muted-foreground p-2 text-sm">Bu PDF'te içindekiler yok.</p>
+            <div className="flex flex-col items-start gap-3 p-2 text-sm">
+              <p className="text-muted-foreground text-pretty">
+                Bu PDF'te tıklanabilir içindekiler yok. PDF'in kendi içindekiler sayfası varsa onu
+                Sayfalar'da bul.
+              </p>
+              <Button variant="outline" size="sm" onClick={() => setNavTab("pages")}>
+                Sayfalar'a geç
+              </Button>
+            </div>
           )}
           <Outline
             className="outline-list text-sm"
             onLoadSuccess={(o) => setHasOutline(!!o?.length)}
+            // Okunamayan içindekiler boş bir sekme bırakmasın.
+            onLoadError={() => setHasOutline(false)}
           />
         </ScrollArea>
       </TabsContent>
