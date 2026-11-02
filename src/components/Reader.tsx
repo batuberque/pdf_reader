@@ -527,7 +527,7 @@ export function Reader({
       }}
       loading={<p className="text-muted-foreground p-8">PDF yükleniyor…</p>}
       error={<p className="text-destructive p-8">PDF açılamadı.</p>}
-      className="flex h-dvh flex-col"
+      className="reader-shell flex h-dvh flex-col"
     >
       <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2">
         <Button

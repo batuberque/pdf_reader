@@ -184,6 +184,20 @@ body {
   --display-weight: 500;
 }
 
+/*
+ * iOS Safari'de uzun basış seçimi seçilebilir en geniş bloğa yayar: üst çubuk ve bütün sayfa birlikte seçilir.
+ * Okuyucuda yalnız PDF metni ve yazı alanları seçilir.
+ */
+.reader-shell {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.reader-shell .textLayer,
+.reader-shell :is(input, textarea) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* Kayıtlı highlight'lar text layer'ın altında çizilir, metin seçimi bozulmaz. */
 .hl-rect {
   position: absolute;
