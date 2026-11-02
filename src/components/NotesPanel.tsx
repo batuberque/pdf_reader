@@ -11,7 +11,8 @@ type Props = {
   activeId: string | null;
   /** `jump`: kullanıcı listeden işarete atlamak istedi. Not alanına odaklanmak atlama değildir. */
   onSelect: (h: Highlight, jump?: boolean) => void;
-  onSpeedRead: () => void;
+  /** `from` verilirse okuma o işaretten başlar. Yoksa ilk işaretten. */
+  onSpeedRead: (from?: Highlight) => void;
   onChange: (id: string, patch: Partial<Highlight>) => void;
   onDelete: (id: string) => void;
 };
@@ -41,8 +42,8 @@ export function NotesPanel({
           <Button
             size="sm"
             disabled={!highlights.length}
-            onClick={onSpeedRead}
-            title="İşaretlediğin yerleri hızlı oku (r)"
+            onClick={() => onSpeedRead()}
+            title="Bütün işaretleri baştan hızlı oku (r)"
           >
             <Zap /> Hızlı oku
           </Button>
@@ -92,7 +93,17 @@ export function NotesPanel({
                 onChange={(e) => onChange(h.id, { note: e.target.value })}
               />
               <div className="text-muted-foreground mt-1 flex items-center justify-between text-xs">
-                <span>Sayfa {pageLabel(h)}</span>
+                <span className="mr-auto">Sayfa {pageLabel(h)}</span>
+                {/* Üstteki "Hızlı oku" hep ilk işaretten başlar. Kullanıcı ortadaki bir işarete buradan döner. */}
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="text-muted-foreground hover:text-foreground mobile:h-11 mobile:px-3 mobile:text-sm"
+                  onClick={() => onSpeedRead(h)}
+                  title="Bu işaretten başlayarak hızlı oku"
+                >
+                  <Zap /> Buradan oku
+                </Button>
                 {/* Yalnız simge, telefonda silmenin yeri belli olmuyordu. Yazı ve geniş dokunma alanı. */}
                 <Button
                   variant="ghost"

@@ -147,3 +147,14 @@ export function readingTime(words: number, wpm: number): string {
  */
 export const pageText = (items: ({ str: string; hasEOL?: boolean } | object)[]) =>
   items.map((i) => ("str" in i ? i.str + (i.hasEOL ? "\n" : "") : "")).join("");
+
+/**
+ * `source` kaynağının ilk kelimesinin indeksi. O kaynakta kelime yoksa ("***" gibi) sonraki kaynağınki.
+ * Sonrasında da kelime yoksa 0.
+ */
+export function sourceStart(tokens: Token[], source: number): number {
+  return Math.max(
+    0,
+    tokens.findIndex((t) => t.source >= source)
+  );
+}

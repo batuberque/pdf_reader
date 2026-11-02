@@ -70,6 +70,8 @@ export function Reader({
   const [speedOpen, setSpeedOpen] = useState(false);
   // "Bu sayfayı hızlı oku" açıksa okunan sayfanın metni. Yoksa hızlı okuma işaretleri okur.
   const [pageSources, setPageSources] = useState<Source[] | null>(null);
+  // Hızlı okumanın başladığı işaretin `ordered` içindeki sırası.
+  const [speedStart, setSpeedStart] = useState(0);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [pdf, setPdf] = useState<Pdf | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -275,8 +277,10 @@ export function Reader({
       else if (e.key === "Escape") {
         setPending(null);
         setEditing(null);
-      } else if (e.key === "r" && ordered.length) setSpeedOpen(true);
-      else if (e.key === "p") readPage();
+      } else if (e.key === "r" && ordered.length) {
+        setSpeedStart(0);
+        setSpeedOpen(true);
+      } else if (e.key === "p") readPage();
       else return;
       e.preventDefault();
     };
@@ -339,6 +343,7 @@ export function Reader({
     setPending(null);
     setEditing(null);
     setPageSources([{ text, page: n }]);
+    setSpeedStart(0);
     setSpeedOpen(true);
   };
 
@@ -480,9 +485,17 @@ export function Reader({
       docName={meta.name}
       highlights={highlights ?? []}
       activeId={activeId}
-      onSpeedRead={() => {
+      onSpeedRead={(from) => {
         // Açık çekmece Hızlı okuma ekranının odağını çalar. Önce kapat.
         setSheet(null);
+        setSpeedStart(
+          from
+            ? Math.max(
+                0,
+                ordered.findIndex((h) => h.id === from.id)
+              )
+            : 0
+        );
         setSpeedOpen(true);
       }}
       onSelect={(h, jump) => {
@@ -768,6 +781,7 @@ export function Reader({
       {speedOpen && (
         <SpeedReader
           sources={speedSources}
+          start={speedStart}
           onClose={(source) => {
             setSpeedOpen(false);
             if (pageSources) return setPageSources(null);

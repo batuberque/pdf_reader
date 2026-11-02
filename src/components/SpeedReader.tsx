@@ -19,6 +19,7 @@ import {
   durationMs,
   remainingMs,
   seekSentence,
+  sourceStart,
   tokenize
 } from "@/lib/rsvp";
 import { cn } from "@/lib/utils";
@@ -101,14 +102,16 @@ const formatTime = (ms: number) => {
 
 type Props = {
   sources: Source[];
-  /** Başlıkta bir kaynağın adı: PDF'te "Alıntı", yapıştırılan metinde "Paragraf". */
+  /** Başlıkta bir kaynağın adı: PDF'te "İşaret", yapıştırılan metinde "Paragraf". */
   unit?: string;
+  /** Okumanın başladığı kaynak. Kullanıcı notlarda bir işareti seçtiyse o işaret. */
+  start?: number;
   onClose: (source: number) => void;
 };
 
-export function SpeedReader({ sources, unit = "Alıntı", onClose }: Props) {
+export function SpeedReader({ sources, unit = "İşaret", start = 0, onClose }: Props) {
   const tokens = useMemo(() => tokenize(sources), [sources]);
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(() => sourceStart(tokens, start));
   const [playing, setPlaying] = useState(false);
   const [done, setDone] = useState(false);
   const [wpm, setWpm] = useState(readWpm);

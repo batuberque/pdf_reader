@@ -25,9 +25,5 @@ Kullanıcının daha önce açtığı PDF'lerin listesi. Her PDF işaretleri ve 
 _Avoid_: Dosyalar, geçmiş
 
 **Hızlı okuma**:
-Bir metni kelime kelime, tek noktada ve seçilen hızda gösteren okuma modu.
+Bir metni kelime kelime, tek noktada ve seçilen hızda gösteren okuma modu. Kullanıcı bütün işaretleri baştan, bir işaretten başlayarak ya da bir sayfanın bütün metnini hızlı okuyabilir.
 _Avoid_: RSVP (arayüzde)
-
-## Flagged ambiguities
-
-- Hızlı okuma ekranı işaretler için "Alıntı" der ("Alıntı 2 / 5"). Başka her yer "işaret" der. Bu tutarsızlık henüz giderilmedi.

@@ -8,6 +8,7 @@ import {
   pivotIndex,
   readingTime,
   seekSentence,
+  sourceStart,
   splitParagraphs,
   tokenize
 } from "./rsvp";
@@ -160,5 +161,28 @@ describe("pageText", () => {
 
   it("metin taşımayan işaretli içerik parçalarını atlar", () => {
     expect(pageText([{ type: "beginMarkedContent" }, { str: "metin" }])).toBe("metin");
+  });
+});
+
+describe("sourceStart", () => {
+  // Notlarda "Buradan oku" seçilen işaretten başlamalı. Hep ilk işaretten başlamak hataydı.
+  const tokens = tokenize([
+    { text: "bir iki" },
+    { text: "***" },
+    { text: "üç dört" },
+    { text: "beş" }
+  ]);
+
+  it("seçilen kaynağın ilk kelimesinden başlar", () => {
+    expect(tokens[sourceStart(tokens, 2)].word).toBe("üç");
+    expect(tokens[sourceStart(tokens, 3)].word).toBe("beş");
+  });
+
+  it("kelimesiz kaynakta sonraki kaynaktan başlar", () => {
+    expect(tokens[sourceStart(tokens, 1)].word).toBe("üç");
+  });
+
+  it("aralık dışındaysa baştan başlar", () => {
+    expect(sourceStart(tokens, 9)).toBe(0);
   });
 });
