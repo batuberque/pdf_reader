@@ -76,8 +76,9 @@ export function NotesPanel({
                 h.id === activeId && "ring-ring ring-1"
               )}
             >
+              {/* `block` şart: Safari satır içi düğmede kısaltılmamış metnin boyu kadar boşluk bırakır. Uzun işaret kartı ekran boyu uzar. */}
               <button
-                className="w-full cursor-pointer border-l-4 pl-2 text-left text-sm"
+                className="block w-full cursor-pointer border-l-4 pl-2 text-left text-sm"
                 style={{ borderColor: h.color }}
                 onClick={() => onSelect(h, true)}
               >
@@ -92,8 +93,14 @@ export function NotesPanel({
               />
               <div className="text-muted-foreground mt-1 flex items-center justify-between text-xs">
                 <span>Sayfa {pageLabel(h)}</span>
-                <Button variant="ghost" size="icon-xs" onClick={() => onDelete(h.id)} title="Sil">
-                  <Trash2 />
+                {/* Yalnız simge, telefonda silmenin yeri belli olmuyordu. Yazı ve geniş dokunma alanı. */}
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="text-muted-foreground hover:text-destructive mobile:h-11 mobile:px-3 mobile:text-sm"
+                  onClick={() => onDelete(h.id)}
+                >
+                  <Trash2 /> İşareti sil
                 </Button>
               </div>
             </li>

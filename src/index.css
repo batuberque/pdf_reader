@@ -198,6 +198,11 @@ body {
   user-select: text;
 }
 
+/* PDF içi bağlantıya uzun basınca Safari uygulamanın kendi önizlemesini açar. Bağlantıya dokunmak yine çalışır. */
+.reader-shell .annotationLayer a {
+  -webkit-touch-callout: none;
+}
+
 /* Kayıtlı highlight'lar text layer'ın altında çizilir, metin seçimi bozulmaz. */
 .hl-rect {
   position: absolute;

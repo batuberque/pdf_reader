@@ -253,8 +253,10 @@ export function SpeedReader({ sources, unit = "Alıntı", onClose }: Props) {
       <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
         <span className="text-sm font-medium">Hızlı okuma</span>
         <span className="text-muted-foreground text-sm">
-          {unit} {paraIndex + 1} / {paragraphs.length}
-          {sources[token.source].page !== undefined && ` · Sayfa ${sources[token.source].page}`}
+          {/* Tek parça okunuyorsa (tek işaret ya da tek sayfa) "1 / 1" bilgi vermez. */}
+          {paragraphs.length > 1 && `${unit} ${paraIndex + 1} / ${paragraphs.length}`}
+          {paragraphs.length > 1 && sources[token.source].page !== undefined && " · "}
+          {sources[token.source].page !== undefined && `Sayfa ${sources[token.source].page}`}
         </span>
         <Button
           variant="ghost"
@@ -405,7 +407,8 @@ export function SpeedReader({ sources, unit = "Alıntı", onClose }: Props) {
             </span>
           </div>
         </div>
-        <p className="text-muted-foreground text-center text-xs">
+        {/* Klavye kısayolları dokunmatik ekranda işe yaramaz. */}
+        <p className="text-muted-foreground text-center text-xs pointer-coarse:hidden">
           Boşluk: oynat/duraklat · ← →: cümle · ↑ ↓: hız · T: metin · Esc: kapat
         </p>
       </footer>

@@ -8,6 +8,14 @@ Tarayıcıda PDF okuma uygulaması. Kullanıcı PDF'te metin işaretler, işaret
 PDF'te seçilip bir renkle boyanan metin parçası. Bir işaretin sıfır ya da bir notu olur.
 _Avoid_: Highlight (arayüzde), Alıntı
 
+**Seçim**:
+Kullanıcının okuyucuda parmakla ya da fareyle seçtiği metin. Kullanıcı bir renk seçince seçim işarete döner.
+_Avoid_: PDF seçimi (PDF açmakla karışır)
+
+**PDF açmak**:
+Kullanıcının bir PDF dosyasını cihazından seçip okuyucuya alması.
+_Avoid_: PDF seçimi, yükleme (dosya hiçbir sunucuya gitmez)
+
 **Not**:
 Kullanıcının bir işarete yazdığı metin. "Notlar" paneli bütün işaretleri ve notlarını listeler.
 _Avoid_: Yorum

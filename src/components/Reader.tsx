@@ -12,6 +12,7 @@ import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import {
   ArrowLeft,
+  BookOpenText,
   ChevronDown,
   ChevronUp,
   List,
@@ -34,6 +35,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { COLORS, type Highlight, type Rect, selectionRects, sortHighlights } from "@/lib/highlight";
 import { useMobile } from "@/lib/media";
+import { type Source, countWords, pageText } from "@/lib/rsvp";
 import { markMatches, matchRanges } from "@/lib/search";
 import { type DocMeta, loadHighlights, saveHighlights, touchDoc } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -66,6 +68,8 @@ export function Reader({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [hasOutline, setHasOutline] = useState(true);
   const [speedOpen, setSpeedOpen] = useState(false);
+  // "Bu sayfayı hızlı oku" açıksa okunan sayfanın metni. Yoksa hızlı okuma işaretleri okur.
+  const [pageSources, setPageSources] = useState<Source[] | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [pdf, setPdf] = useState<Pdf | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -90,8 +94,8 @@ export function Reader({
   const scrollRef = useRef<HTMLDivElement>(null);
   const ordered = useMemo(() => sortHighlights(highlights ?? []), [highlights]);
   const speedSources = useMemo(
-    () => (speedOpen ? ordered.map((h) => ({ text: h.text, page: h.page })) : []),
-    [speedOpen, ordered]
+    () => pageSources ?? (speedOpen ? ordered.map((h) => ({ text: h.text, page: h.page })) : []),
+    [pageSources, speedOpen, ordered]
   );
 
   const goTo = (n: number) => {
@@ -272,6 +276,7 @@ export function Reader({
         setPending(null);
         setEditing(null);
       } else if (e.key === "r" && ordered.length) setSpeedOpen(true);
+      else if (e.key === "p") readPage();
       else return;
       e.preventDefault();
     };
@@ -311,6 +316,36 @@ export function Reader({
     toast("İşaret silindi.", {
       action: { label: "Geri al", onClick: () => setHighlights((hs) => [...(hs ?? []), h]) }
     });
+  };
+
+  /** Geçerli sayfanın bütün metnini hızlı okuma ekranında açar. */
+  const readPage = async () => {
+    if (!pdf) return;
+    const n = page;
+    let text: string;
+    try {
+      text = pageText((await (await pdf.getPage(n)).getTextContent()).items);
+    } catch (e) {
+      return toast.error("Sayfanın metni okunamadı.", {
+        description: `Hata kodu: ${e instanceof Error ? e.name : "bilinmiyor"}.`
+      });
+    }
+    if (!countWords(text)) {
+      return toast("Bu sayfada okunacak metin yok.", {
+        description: "Taranmış bir sayfa yalnız görüntüdür. Görüntüdeki yazı okunmaz."
+      });
+    }
+    setSheet(null);
+    setPending(null);
+    setEditing(null);
+    setPageSources([{ text, page: n }]);
+    setSpeedOpen(true);
+  };
+
+  // Seçim üst ya da alt çubukta bir düğmeye basınca kalkar. Renk çubuğu açık kalırsa sayfayı örter.
+  const dismissBar = () => {
+    setPending(null);
+    setEditing(null);
   };
 
   /** Seçili metinden bekleyen işareti çıkarır. Seçim boşsa hiçbir şey yapmaz. */
@@ -529,7 +564,10 @@ export function Reader({
       error={<p className="text-destructive p-8">PDF açılamadı.</p>}
       className="reader-shell flex h-dvh flex-col"
     >
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2">
+      <header
+        onPointerDown={dismissBar}
+        className="flex h-12 shrink-0 items-center gap-2 border-b px-2"
+      >
         <Button
           variant="ghost"
           size="icon-sm"
@@ -547,6 +585,19 @@ export function Reader({
             compactSearch && "min-w-0 flex-1"
           )}
         >
+          {!compactSearch && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="mobile:size-11"
+              disabled={!pdf}
+              onClick={readPage}
+              title="Bu sayfayı hızlı oku (p)"
+              aria-label="Bu sayfayı hızlı oku"
+            >
+              <BookOpenText />
+            </Button>
+          )}
           {searchOpen ? (
             <div className="mobile:flex-1 flex min-w-0 items-center gap-1">
               <input
@@ -643,7 +694,10 @@ export function Reader({
       {mobile ? (
         <>
           <div className="min-h-0 flex-1">{pdfView}</div>
-          <nav className="flex h-14 shrink-0 items-center justify-between border-t px-2">
+          <nav
+            onPointerDown={dismissBar}
+            className="flex h-14 shrink-0 items-center justify-between border-t px-2"
+          >
             <Button
               variant="ghost"
               size="icon"
@@ -716,6 +770,7 @@ export function Reader({
           sources={speedSources}
           onClose={(source) => {
             setSpeedOpen(false);
+            if (pageSources) return setPageSources(null);
             const h = ordered[source];
             if (h) {
               setActiveId(h.id);

@@ -139,3 +139,11 @@ export function readingTime(words: number, wpm: number): string {
   const h = Math.floor(min / 60);
   return min % 60 ? `${h} saat ${min % 60} dakika` : `${h} saat`;
 }
+
+/**
+ * pdf.js sayfa metni parçalarını tek metne çevirir. Satır sonu (`hasEOL`) yeni satır olur.
+ * `cleanText` sonra satır sonunda bölünmüş kelimeleri birleştirir.
+ * İşaretli içerik parçalarında (`str` yok) metin yoktur, atlanır.
+ */
+export const pageText = (items: ({ str: string; hasEOL?: boolean } | object)[]) =>
+  items.map((i) => ("str" in i ? i.str + (i.hasEOL ? "\n" : "") : "")).join("");

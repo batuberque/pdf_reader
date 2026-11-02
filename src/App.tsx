@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FileText, FileUp, Library, Lock, Search, Trash2 } from "lucide-react";
+import { FileText, FileUp, Library, LoaderCircle, Lock, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { FocusWord } from "@/components/FocusWord";
 import { Reader } from "@/components/Reader";
@@ -53,6 +53,7 @@ export default function App() {
   const [open, setOpen] = useState<{ meta: DocMeta; file: Blob } | null>(null);
   const [docs, setDocs] = useState<LibraryDoc[] | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState(readTab);
   const [filter, setFilter] = useState("");
   // Silinen PDF 6 saniye boyunca geri alınabilir. Süre dolana kadar depoda durur, listeden gizlenir.
@@ -106,6 +107,16 @@ export default function App() {
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
       return toast.error(`${file.name} bir PDF değil. Yalnız PDF dosyaları açılır.`);
     }
+    // Büyük bir PDF'i okumak ve kaydetmek telefonda birkaç saniye sürer. Bu sürede ekran boş kalmasın.
+    setBusy(true);
+    try {
+      await load(file);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const load = async (file: File) => {
     let meta: DocMeta;
     try {
       meta = await saveDoc(file);
@@ -195,32 +206,55 @@ export default function App() {
                 <TabsContent value="pdf" className="p-4">
                   <button
                     onClick={() => inputRef.current?.click()}
+                    disabled={busy}
+                    aria-busy={busy}
                     className={cn(
-                      "group/drop hover:bg-muted/50 focus-visible:ring-ring/50 flex h-64 w-full cursor-pointer flex-col items-center justify-center gap-4 rounded-lg border border-dashed transition-colors outline-none focus-visible:ring-[3px]",
+                      "group/drop hover:bg-muted/50 focus-visible:ring-ring/50 flex h-64 w-full cursor-pointer flex-col items-center justify-center gap-4 rounded-lg border border-dashed transition-colors outline-none focus-visible:ring-[3px] disabled:cursor-progress pointer-coarse:h-48",
                       dragging && "border-primary bg-muted/70"
                     )}
                   >
                     <span className="bg-muted text-foreground flex size-12 items-center justify-center rounded-xl">
-                      <FileUp className="size-6" />
+                      {busy ? (
+                        <LoaderCircle className="size-6 animate-spin motion-reduce:animate-none" />
+                      ) : (
+                        <FileUp className="size-6" />
+                      )}
                     </span>
-                    <span className="flex flex-col items-center gap-1">
-                      <span className="text-base font-medium">
-                        {dragging ? "Bırak, PDF açılsın" : "PDF'i buraya bırak"}
-                      </span>
-                      <span className="text-muted-foreground text-sm">
-                        ya da bilgisayarından seç
-                      </span>
-                    </span>
-                    <span className={buttonVariants({ variant: "outline", size: "sm" })}>
-                      PDF seç
-                    </span>
+                    {busy ? (
+                      <span className="text-base font-medium">PDF açılıyor…</span>
+                    ) : (
+                      <>
+                        {/* Dokunmatik ekranda sürükle-bırak yok. Telefonda yalnız dosya seçimi anlatılır. */}
+                        <span className="flex flex-col items-center gap-1 pointer-coarse:hidden">
+                          <span className="text-base font-medium">
+                            {dragging ? "Bırak, PDF açılsın" : "PDF'i buraya bırak"}
+                          </span>
+                          <span className="text-muted-foreground text-sm">
+                            ya da bilgisayarından seç
+                          </span>
+                        </span>
+                        <span className="hidden flex-col items-center gap-1 pointer-coarse:flex">
+                          <span className="text-base font-medium">Bir PDF aç</span>
+                          <span className="text-muted-foreground text-sm">
+                            Dosyalar'dan ya da iCloud'dan seç
+                          </span>
+                        </span>
+                        <span className={buttonVariants({ variant: "outline", size: "sm" })}>
+                          PDF seç
+                        </span>
+                      </>
+                    )}
                   </button>
                   <input
                     ref={inputRef}
                     type="file"
                     accept="application/pdf"
                     hidden
-                    onChange={(e) => openFile(e.target.files?.[0])}
+                    onChange={(e) => {
+                      openFile(e.target.files?.[0]);
+                      // Aynı dosya yeniden seçilince de change olayı gelsin.
+                      e.target.value = "";
+                    }}
                   />
                 </TabsContent>
                 <TabsContent value="text" className="p-4">
@@ -234,7 +268,11 @@ export default function App() {
             </p>
           </div>
 
-          <aside aria-labelledby="library-title" className="flex flex-col gap-3">
+          <aside
+            aria-labelledby="library-title"
+            // Telefonda kitaplık altta kalır ve görünmez. Kitaplıkta PDF varsa önce o gelir.
+            className={cn("flex flex-col gap-3", !!visible?.length && "max-lg:order-first")}
+          >
             <h2 id="library-title" className="font-display flex items-baseline gap-2 text-lg">
               Kitaplığın
               {!!visible?.length && (

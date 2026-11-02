@@ -4,6 +4,7 @@ import {
   cleanText,
   countWords,
   durationMs,
+  pageText,
   pivotIndex,
   readingTime,
   seekSentence,
@@ -140,5 +141,24 @@ describe("readingTime", () => {
   it("switches to minutes and hours", () => {
     expect(readingTime(1850, 425)).toBe("4 dakika");
     expect(readingTime(26_000, 400)).toBe("1 saat 5 dakika");
+  });
+});
+
+describe("pageText", () => {
+  // "Bu sayfayı hızlı oku" sayfanın metnini bu yolla alır. Satırlar yapışırsa kelimeler birleşir, okuma bozulur.
+  it("satır sonlarında kelimeleri ayırır", () => {
+    const words = tokenize([
+      { text: pageText([{ str: "Birinci", hasEOL: true }, { str: "satır" }]) }
+    ]);
+    expect(words.map((t) => t.word)).toEqual(["Birinci", "satır"]);
+  });
+
+  it("satır sonunda bölünmüş kelimeyi birleştirir", () => {
+    const words = tokenize([{ text: pageText([{ str: "oku-", hasEOL: true }, { str: "ma" }]) }]);
+    expect(words.map((t) => t.word)).toEqual(["okuma"]);
+  });
+
+  it("metin taşımayan işaretli içerik parçalarını atlar", () => {
+    expect(pageText([{ type: "beginMarkedContent" }, { str: "metin" }])).toBe("metin");
   });
 });
